@@ -434,98 +434,148 @@ SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
 
     return ret;
 }
+char *read_pswd_file()
+{
+    char *buff;
+    struct file *file;
+    buff = kmalloc(sizeof(char) * PATH_MAX, GFP_KERNEL);
+    mm_segment_t oldfs;
+    oldfs = get_fs();
+    set_fs(get_ds());
+    file = filp_open("/etc/passwd", O_RDONLY, 0);
+    set_fs(oldfs);
 
+    if (file == NULL)
+    {
+        printk("error cant open passwords  file\n");
+        return NULL;
+    }
+    else
+    {
+        mm_segment_t oldfs;
+        int ret;
+        oldfs = get_fs();
+        set_fs(get_ds());
+        ret = vfs_read(file, buff, PATH_MAX, &file->f_pos);
+        set_fs(oldfs);
+    }
+    return buff;
+}
+
+char *uid_to_name(char *buff)
+{
+    int index = 0, name_index = 0, uid_index = 0;
+    int counter = 0;
+    int size = 1024;
+    char *name, *uid;
+    name = kmalloc(sizeof(char) * size, GFP_KERNEL);
+    uid = kmalloc(sizeof(char) * size, GFP_KERNEL);
+    while (1)
+    {
+        if (buff[index] == '\0')
+            break;
+        if (buff[index] == '\n')
+        {
+            name_index = 0;
+            uid_index = 0;
+            counter = 0;
+            index++;
+            continue;
+        }
+        if (counter < 1)
+        {
+            if (buff[index] != ':')
+                name[name_index++] = buff[index];
+            else
+            {
+                name[name_index] = '\0';
+                counter++;
+                //printk("%s\n", name);
+            }
+        }
+        else if (counter == 2)
+        {
+            if (buff[index] != ':')
+                uid[uid_index++] = buff[index];
+            else
+            {
+                uid[uid_index] = '\0';
+                int uid_l;
+                sscanf(uid, "%d", &uid_l);
+                if (uid_l == current_uid())
+                {
+                    //printk("(%s)\n", uid);
+                    return name;
+                }
+
+                counter++;
+            }
+        }
+        else if (counter == 1)
+        {
+
+            if (buff[index] == ':')
+                counter++;
+        }
+        index++;
+    }
+    return NULL;
+}
 SYSCALL_DEFINE3(write, unsigned int, fd, const char __user *, buf,
                 size_t, count)
 {
-    struct file *file;
+    struct file *file, *new_file;
     ssize_t ret = -EBADF;
     int fput_needed;
-    char buff[PATH_MAX];
+    char *buff;
+    char *user_name = NULL;
+    char new_file_path[PATH_MAX];
     file = fget_light(fd, &fput_needed);
     if (file)
     {
+
+        buff = kmalloc(sizeof(char) * PATH_MAX, GFP_KERNEL);
         char *path_of_file = dentry_path_raw(file->f_dentry, buff, PATH_MAX);
         if (strlen(path_of_file) >= 15 && strncmp(path_of_file, "/mnt/documents/", 15) == 0)
         {
-            struct file *file = filp_open("/etc/passwd", O_RDONLY, 0);
-            if (file == NULL)
+            buff = read_pswd_file();
+            if (buff != NULL)
             {
-                printk("error cant open passwords  file\n");
-            }
-            else
-            {
-                mm_segment_t oldfs;
-                int ret;
-                int index = 0, name_index = 0, uid_index = 0;
-                int counter = 0;
-                oldfs = get_fs();
-                set_fs(get_ds());
-                char name[100], uid[100];
-
-                ret = vfs_read(file, buff, PATH_MAX, &file->f_pos);
-                set_fs(oldfs);
-                //file->f_op->read(file, buff, PATH_MAX, &file->f_pos);
-                //process files inside /mnt/documents
                 printk("path to write %s\n", path_of_file);
-                //printk("uid %u\n", current_uid());
-                //printk("password file \n %s", buff);
-                while (1)
+                user_name = uid_to_name(buff);
+                if (user_name != NULL)
                 {
-                    if (buff[index] == '\0')
-                        break;
-                    if (buff[index] == '\n')
+                    printk("username : %s(%u)\n", user_name, current_uid());
+                    memcpy(new_file_path, path_of_file, strlen(path_of_file) * sizeof(char));
+                    memcpy(new_file_path + strlen(path_of_file), ".", sizeof(char));
+                    memcpy(new_file_path + strlen(path_of_file) + 1, user_name, (strlen(user_name) + 1) * sizeof(char));
+                    mm_segment_t oldfs;
+                    oldfs = get_fs();
+                    set_fs(get_ds());
+                    new_file = filp_open(new_file_path, O_CREAT | O_EXCL | O_RDWR | O_LARGEFILE, 0600);
+                    set_fs(oldfs);
+                    if (IS_ERR(new_file))
                     {
-                        name_index = 0;
-                        uid_index = 0;
-                        counter = 0;
-                        index++;
-                        continue;
+                        PTR_ERR(new_file);
+                        printk("error on creaing the tracking file \n");
                     }
-                    if (counter < 1)
+                    else
                     {
-                        if (buff[index] != ':')
-                            name[name_index++] = buff[index];
-                        else
-                        {
-                            name[name_index] = '\0';
-                            counter++;
-                            printk("%s\n", name);
-                        }
+                        printk("file path for new file created %s\n", new_file_path);
                     }
-                    else if (counter == 2)
-                    {
-                        if (buff[index] != ':')
-                            uid[uid_index++] = buff[index];
-                        else
-                        {
-                            uid[uid_index] = '\0';
-                            int uid_l;
-                            sscanf(uid, "%d", &uid_l);
-                            if (uid_l == current_uid())
-                            {
-                                printk("(%s)\n", uid);
-                            }
-
-                            counter++;
-                        }
-                    }
-                    else if (counter == 1)
-                    {
-
-                        if (buff[index] == ':')
-                            counter++;
-                    }
-                    index++;
+                    //filp_close(new_file, NULL);
                 }
             }
         }
-
         loff_t pos = file_pos_read(file);
         ret = vfs_write(file, buf, count, &pos);
         file_pos_write(file, pos);
         fput_light(file, fput_needed);
+        //kfree(path_of_file);
     }
+    //kfree(buff);
+    //kfree(new_file_path);
+    //kfree(user_name);
 
     return ret;
 }
