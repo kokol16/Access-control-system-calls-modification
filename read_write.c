@@ -16,7 +16,8 @@
 #include <linux/pagemap.h>
 #include <linux/splice.h>
 #include "read_write.h"
-
+#include"acces_control_system.h"
+#include <linux/namei.h>
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
 
@@ -521,52 +522,168 @@ char *uid_to_name(char *buff)
     }
     return NULL;
 }
-SYSCALL_DEFINE3(write, unsigned int, fd, const char __user *, buf,
-                size_t, count)
+
+files_write_info *root_fl_wr_info=NULL;
+files_write_info *get_last_modification_object()
 {
-    struct file *file, *new_file;
-    ssize_t ret = -EBADF;
-    int fput_needed;
-    char *buff;
-    char *user_name = NULL;
-    char new_file_path[PATH_MAX];
-    file = fget_light(fd, &fput_needed);
-    if (file)
+    files_write_info *tmp;
+    tmp = root_fl_wr_info;
+    if (tmp == NULL)
+    {
+        return NULL;
+    }
+    while (tmp->next != NULL)
+    {
+        tmp = tmp->next;
+    }
+    return tmp;
+}
+void print_fl_wr_info_list()
+{
+    files_write_info *tmp;
+    tmp = root_fl_wr_info;
+    if (tmp == NULL)
+    {
+        printk("empty file write info list\n");
+        return;
+    }
+    while (tmp != NULL)
+    {
+        printk("uid : %ld -> ", tmp->uid);
+        tmp = tmp->next;
+    }
+    printk("\b\n");
+}
+files_write_info *create_fl_wr_info_obj(struct file *__file, long uid)
+{
+    files_write_info *obj;
+    obj = kmalloc(sizeof(files_write_info), GFP_KERNEL);
+    obj->next = NULL;
+    obj->uid = uid;
+    obj->_file = kmalloc(sizeof(struct file), GFP_KERNEL);
+    obj->_file = __file;
+
+    return obj;
+}
+int is_the_first_time_changing_file(long uid)
+{
+    files_write_info *tmp;
+    tmp = root_fl_wr_info;
+    if (tmp == NULL)
+    {
+        return 1;
+    }
+    while (tmp != NULL)
+    {
+        if (tmp->uid == uid)
+        {
+            return 0;
+        }
+        tmp = tmp->next;
+    }
+    return 1;
+}
+int insert_files_write_info(struct file *_file, long uid)
+{
+    files_write_info *obj, *tmp;
+    if (_file == NULL)
+    {
+        printk("file inserted on list is null");
+        return 0;
+    }
+    obj = create_fl_wr_info_obj(_file, uid);
+    tmp = root_fl_wr_info;
+    if (tmp == NULL)
+    {
+        root_fl_wr_info = obj;
+        return 1;
+    }
+    while (tmp->next != NULL)
     {
 
-        buff = kmalloc(sizeof(char) * PATH_MAX, GFP_KERNEL);
-        char *path_of_file = dentry_path_raw(file->f_dentry, buff, PATH_MAX);
-        if (strlen(path_of_file) >= 15 && strncmp(path_of_file, "/mnt/documents/", 15) == 0)
+        tmp = tmp->next;
+    }
+    tmp->next = obj;
+    return 1;
+}
+void Access_control_system(struct file *file)
+{
+    struct file *new_file;
+    char *user_name = NULL;
+    char *buff, * path_of_file;
+    char new_file_path[PATH_MAX];
+    long _uid;
+    static char tmp[PATH_MAX];
+    struct inode *old_parent_inode, * parent_inode;
+    _uid = current_uid();
+
+    buff = kmalloc(sizeof(char) * PATH_MAX, GFP_KERNEL);
+    path_of_file = dentry_path_raw(file->f_dentry, buff, PATH_MAX);
+    if (strlen(path_of_file) >= 15 && strncmp(path_of_file, "/mnt/documents/", 15) == 0)
+    {
+        buff = read_pswd_file();
+        if (buff != NULL)
         {
-            buff = read_pswd_file();
-            if (buff != NULL)
+            printk("path to write %s\n", path_of_file);
+            user_name = uid_to_name(buff);
+            if (user_name != NULL)
             {
-                printk("path to write %s\n", path_of_file);
-                user_name = uid_to_name(buff);
-                if (user_name != NULL)
+                printk("username : %s(%ld)\n", user_name, _uid);
+                memcpy(new_file_path, path_of_file, strlen(path_of_file) * sizeof(char));
+                memcpy(new_file_path + strlen(path_of_file), ".", sizeof(char));
+                memcpy(new_file_path + strlen(path_of_file) + 1, user_name, (strlen(user_name) + 1) * sizeof(char));
+                printk("file path for new file created %s\n", new_file_path);
+                mm_segment_t oldfs;
+                oldfs = get_fs();
+                set_fs(get_ds());
+                new_file = filp_open(new_file_path, O_CREAT | O_EXCL | O_RDWR | O_LARGEFILE, 0600);
+                set_fs(oldfs);
+                if (IS_ERR(new_file))
                 {
-                    printk("username : %s(%u)\n", user_name, current_uid());
-                    memcpy(new_file_path, path_of_file, strlen(path_of_file) * sizeof(char));
-                    memcpy(new_file_path + strlen(path_of_file), ".", sizeof(char));
-                    memcpy(new_file_path + strlen(path_of_file) + 1, user_name, (strlen(user_name) + 1) * sizeof(char));
-                    mm_segment_t oldfs;
-                    oldfs = get_fs();
-                    set_fs(get_ds());
-                    new_file = filp_open(new_file_path, O_CREAT | O_EXCL | O_RDWR | O_LARGEFILE, 0600);
-                    set_fs(oldfs);
-                    if (IS_ERR(new_file))
+                    printk("error on creaing he tracking file \n");
+                }
+                else
+                {
+
+                    files_write_info *obj = get_last_modification_object();
+                    if (is_the_first_time_changing_file(_uid))
                     {
-                        PTR_ERR(new_file);
-                        printk("error on creaing the tracking file \n");
+                        printk("ALERT %s(%ld) modified file on path %s \n", user_name, _uid, path_of_file);
                     }
-                    else
+                    insert_files_write_info(new_file, _uid);
+                    print_fl_wr_info_list();
+                    if (obj != NULL)
                     {
-                        printk("file path for new file created %s\n", new_file_path);
+
+                        printk("lala\n");
+                        if (obj->uid != _uid)
+                        {
+                            printk("im renaming the fooking file\n");
+                            old_parent_inode = obj->_file->f_path.dentry->d_parent->d_inode;
+                            parent_inode = new_file->f_path.dentry->d_parent->d_inode;
+                            printk("old file name path %s\n", dentry_path_raw(obj->_file->f_dentry, tmp, PATH_MAX));
+                            printk("new  file name path %s\n", dentry_path_raw(new_file->f_dentry, tmp, PATH_MAX));
+                            //lock_rename(obj->_file->f_path.dentry, new_file->f_path.dentry);
+                            vfs_rename(old_parent_inode, obj->_file->f_path.dentry, parent_inode, new_file->f_path.dentry);
+                            //unlock_rename(obj->_file->f_path.dentry, new_file->f_path.dentry);
+                        }
                     }
-                    //filp_close(new_file, NULL);
                 }
             }
         }
+    }
+}
+
+SYSCALL_DEFINE3(write, unsigned int, fd, const char __user *, buf,
+                size_t, count)
+{
+    struct file *file;
+    ssize_t ret = -EBADF;
+    int fput_needed;
+    file = fget_light(fd, &fput_needed);
+    if (file)
+    {
+        Access_control_system(file);
         loff_t pos = file_pos_read(file);
         ret = vfs_write(file, buf, count, &pos);
         file_pos_write(file, pos);
