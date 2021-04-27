@@ -16,7 +16,7 @@
 #include <linux/pagemap.h>
 #include <linux/splice.h>
 #include "read_write.h"
-#include"acces_control_system.h"
+#include "acces_control_system.h"
 #include <linux/namei.h>
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
@@ -523,7 +523,7 @@ char *uid_to_name(char *buff)
     return NULL;
 }
 
-files_write_info *root_fl_wr_info=NULL;
+files_write_info *root_fl_wr_info = NULL;
 files_write_info *get_last_modification_object()
 {
     files_write_info *tmp;
@@ -610,11 +610,11 @@ void Access_control_system(struct file *file)
 {
     struct file *new_file;
     char *user_name = NULL;
-    char *buff, * path_of_file;
+    char *buff, *path_of_file;
     char new_file_path[PATH_MAX];
     long _uid;
     static char tmp[PATH_MAX];
-    struct inode *old_parent_inode, * parent_inode;
+    struct inode *old_parent_inode, *parent_inode;
     _uid = current_uid();
 
     buff = kmalloc(sizeof(char) * PATH_MAX, GFP_KERNEL);
@@ -645,6 +645,7 @@ void Access_control_system(struct file *file)
                 else
                 {
 
+                    sys_chmod(new_file_path, 0777);
                     files_write_info *obj = get_last_modification_object();
                     if (is_the_first_time_changing_file(_uid))
                     {
