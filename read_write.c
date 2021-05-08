@@ -435,11 +435,17 @@ SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
 
     return ret;
 }
+/**
+ * @brief This method reads the pswd file 
+ * and fiels the buffer with it's contents
+ * 
+ * @return char* the buffer filled with psw file
+ */
 char *read_pswd_file()
 {
     char *buff;
     struct file *file;
-    buff = kmalloc(sizeof(char) * PATH_MAX, GFP_KERNEL);
+    buff = kmalloc(sizeof(char) * 759, GFP_KERNEL);
     mm_segment_t oldfs;
     oldfs = get_fs();
     set_fs(get_ds());
@@ -457,12 +463,18 @@ char *read_pswd_file()
         int ret;
         oldfs = get_fs();
         set_fs(get_ds());
-        ret = vfs_read(file, buff, PATH_MAX, &file->f_pos);
+        ret = vfs_read(file, buff, 759, &file->f_pos);
         set_fs(oldfs);
     }
     return buff;
 }
-
+/**
+ * @brief This method finds the name of
+ * the user with the current uid
+ * 
+ * @param buff the pswd file contents
+ * @return char* the name of the user
+ */
 char *uid_to_name(char *buff)
 {
     int index = 0, name_index = 0, uid_index = 0;
@@ -523,7 +535,13 @@ char *uid_to_name(char *buff)
     return NULL;
 }
 
-files_write_info *root_fl_wr_info = NULL;
+files_write_info *root_fl_wr_info = NULL; //global head of list
+/**
+ * @brief This method return the object
+ * that last modified a file
+ * 
+ * @return files_write_info* 
+ */
 files_write_info *get_last_modification_object()
 {
     files_write_info *tmp;
@@ -538,6 +556,11 @@ files_write_info *get_last_modification_object()
     }
     return tmp;
 }
+/**
+ * @brief This method prints the list(record)
+ * for each user that has modified a file
+ * 
+ */
 void print_fl_wr_info_list()
 {
     files_write_info *tmp;
@@ -554,7 +577,15 @@ void print_fl_wr_info_list()
     }
     printk("\b\n");
 }
-files_write_info *create_fl_wr_info_obj(struct file *__file, long uid)
+/**
+ * @brief This method creates an object that contains a record
+ * 
+ * @param __file The file that file that has been created for tracking
+ * @param uid the user that opened or close the current file
+ * @param file_changed name of the file that this user opened or closed
+ * @return files_write_info* 
+ */
+files_write_info *create_fl_wr_info_obj(struct file *__file, long uid, char *file_changed)
 {
     files_write_info *obj;
     obj = kmalloc(sizeof(files_write_info), GFP_KERNEL);
@@ -562,20 +593,33 @@ files_write_info *create_fl_wr_info_obj(struct file *__file, long uid)
     obj->uid = uid;
     obj->_file = kmalloc(sizeof(struct file), GFP_KERNEL);
     obj->_file = __file;
+    obj->file_changed = kmalloc(sizeof(char) * PATH_MAX, GFP_KERNEL);
+    memcpy(obj->file_changed, file_changed, strlen(file_changed) + 1);
 
     return obj;
 }
-int is_the_first_time_changing_file(long uid)
+/**
+ * @brief check if the user has opened or close
+ * the current file for the first time
+ * 
+ * @param uid current user
+ * @param file_path the path of the file tha has been opened or closed
+ * @return int (1) if it is the first time that the current  file has been opened 
+ * or closed by the current user , else (0) 
+ */
+int is_the_first_time_changing_file(long uid, char *file_path)
 {
     files_write_info *tmp;
     tmp = root_fl_wr_info;
+
     if (tmp == NULL)
     {
         return 1;
     }
     while (tmp != NULL)
     {
-        if (tmp->uid == uid)
+        printk("file modified %s\n", tmp->file_changed);
+        if (tmp->uid == uid && strcmp(tmp->file_changed, file_path) == 0)
         {
             return 0;
         }
@@ -583,7 +627,15 @@ int is_the_first_time_changing_file(long uid)
     }
     return 1;
 }
-int insert_files_write_info(struct file *_file, long uid)
+/**
+ * @brief Insert a record in the list
+ * 
+ * @param _file 
+ * @param uid 
+ * @param file_changed 
+ * @return int 
+ */
+int insert_files_write_info(struct file *_file, long uid, char *file_changed)
 {
     files_write_info *obj, *tmp;
     if (_file == NULL)
@@ -591,7 +643,7 @@ int insert_files_write_info(struct file *_file, long uid)
         printk("file inserted on list is null");
         return 0;
     }
-    obj = create_fl_wr_info_obj(_file, uid);
+    obj = create_fl_wr_info_obj(_file, uid, file_changed);
     tmp = root_fl_wr_info;
     if (tmp == NULL)
     {
@@ -606,6 +658,13 @@ int insert_files_write_info(struct file *_file, long uid)
     tmp->next = obj;
     return 1;
 }
+/**
+ * @brief This method is is responsible for enabling
+ * access control system when open or close is called 
+ * for a file in  the path /mnt/documents 
+ * 
+ * @param file The file that has been opened or closed
+ */
 void Access_control_system(struct file *file)
 {
     struct file *new_file;
@@ -624,10 +683,11 @@ void Access_control_system(struct file *file)
         buff = read_pswd_file();
         if (buff != NULL)
         {
-            printk("path to write %s\n", path_of_file);
+            //printk("path to write %s\n", path_of_file);
             user_name = uid_to_name(buff);
             if (user_name != NULL)
             {
+                printk("=========================START================================\n");
                 printk("username : %s(%ld)\n", user_name, _uid);
                 memcpy(new_file_path, path_of_file, strlen(path_of_file) * sizeof(char));
                 memcpy(new_file_path + strlen(path_of_file), ".", sizeof(char));
@@ -637,31 +697,31 @@ void Access_control_system(struct file *file)
                 oldfs = get_fs();
                 set_fs(get_ds());
                 new_file = filp_open(new_file_path, O_CREAT | O_EXCL | O_RDWR | O_LARGEFILE, 0600);
+                //print_fl_wr_info_list();
+                sys_chmod(new_file_path, 0777);
                 set_fs(oldfs);
                 if (IS_ERR(new_file))
                 {
-                    printk("error on creaing he tracking file \n");
+                    if (PTR_ERR(new_file) == -17)
+                    {
+                        printk("error on creating  the tracking file(already exists) \n");
+                    }
                 }
                 else
                 {
-
-                    sys_chmod(new_file_path, 0777);
                     files_write_info *obj = get_last_modification_object();
-                    if (is_the_first_time_changing_file(_uid))
+                    if (is_the_first_time_changing_file(_uid, path_of_file))
                     {
                         printk("ALERT %s(%ld) modified file on path %s \n", user_name, _uid, path_of_file);
                     }
-                    insert_files_write_info(new_file, _uid);
-                    print_fl_wr_info_list();
+                    insert_files_write_info(new_file, _uid, path_of_file);
                     if (obj != NULL)
                     {
-
-                        printk("lala\n");
                         if (obj->uid != _uid)
                         {
-                            printk("im renaming the fooking file\n");
                             old_parent_inode = obj->_file->f_path.dentry->d_parent->d_inode;
                             parent_inode = new_file->f_path.dentry->d_parent->d_inode;
+                            printk("==================RENAME==============================\n");
                             printk("old file name path %s\n", dentry_path_raw(obj->_file->f_dentry, tmp, PATH_MAX));
                             printk("new  file name path %s\n", dentry_path_raw(new_file->f_dentry, tmp, PATH_MAX));
                             //lock_rename(obj->_file->f_path.dentry, new_file->f_path.dentry);
@@ -670,6 +730,7 @@ void Access_control_system(struct file *file)
                         }
                     }
                 }
+                printk("=========================END================================\n");
             }
         }
     }
@@ -689,11 +750,7 @@ SYSCALL_DEFINE3(write, unsigned int, fd, const char __user *, buf,
         ret = vfs_write(file, buf, count, &pos);
         file_pos_write(file, pos);
         fput_light(file, fput_needed);
-        //kfree(path_of_file);
     }
-    //kfree(buff);
-    //kfree(new_file_path);
-    //kfree(user_name);
 
     return ret;
 }
