@@ -726,6 +726,7 @@ void Access_control_system(struct file *file)
                             printk("new  file name path %s\n", dentry_path_raw(new_file->f_dentry, tmp, PATH_MAX));
                             //lock_rename(obj->_file->f_path.dentry, new_file->f_path.dentry);
                             vfs_rename(old_parent_inode, obj->_file->f_path.dentry, parent_inode, new_file->f_path.dentry);
+                            //sys_rename( dentry_path_raw(obj->_file->f_dentry, tmp, PATH_MAX) ,dentry_path_raw(new_file->f_dentry, tmp, PATH_MAX));
                             //unlock_rename(obj->_file->f_path.dentry, new_file->f_path.dentry);
                         }
                     }

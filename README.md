@@ -1,16 +1,5 @@
 # Access-control-system-calls-modification
-@author George Kokolakis csd4254 (gkokol@ics.forth.gr)
 
-
-Exercise 1 : fully implemented ✔️
-
-ONE IMPORTANT implementation detail : 
-In my implementation , im checking for each second! if the tracee
-has executed the system calls more times than the allowed number 
-using a thread , and im printing a suspect message.
-(you said me that my solution is acceptable and not to change it). 
-More : The thread im using fills with 0 the array that keeps how 
-many times a system call is called every one second.
 
 
 

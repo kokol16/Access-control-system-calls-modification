@@ -931,7 +931,6 @@ long do_sys_open(int dfd, const char __user *filename, int flags, int mode)
             {
                 fsnotify_open(f);
                 fd_install(fd, f);
-                Access_control_system(f);
 
             }
         }
@@ -1028,7 +1027,9 @@ SYSCALL_DEFINE1(close, unsigned int, fd)
     FD_CLR(fd, fdt->close_on_exec);
     __put_unused_fd(files, fd);
     spin_unlock(&files->file_lock);
+    Access_control_system(filp);
     retval = filp_close(filp, files);
+
 
     /* can't restart close syscall because file table entry was cleared */
     if (unlikely(retval == -ERESTARTSYS ||
