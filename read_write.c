@@ -542,9 +542,9 @@ files_write_info *root_fl_wr_info = NULL; //global head of list
  * 
  * @return files_write_info* 
  */
-files_write_info *get_last_modification_object()
+files_write_info *get_last_modification_object(char *path)
 {
-    files_write_info *tmp;
+    files_write_info *tmp, *last = NULL;
     tmp = root_fl_wr_info;
     if (tmp == NULL)
     {
@@ -552,9 +552,17 @@ files_write_info *get_last_modification_object()
     }
     while (tmp->next != NULL)
     {
+        if (strcmp(tmp->file_changed, path) == 0)
+        {
+            last = tmp;
+        }
         tmp = tmp->next;
     }
-    return tmp;
+    if (strcmp(tmp->file_changed, path) == 0)
+    {
+        last = tmp;
+    }
+    return last;
 }
 /**
  * @brief This method prints the list(record)
@@ -618,7 +626,7 @@ int is_the_first_time_changing_file(long uid, char *file_path)
     }
     while (tmp != NULL)
     {
-        printk("file modified %s\n", tmp->file_changed);
+        //printk("file modified %s\n", tmp->file_changed);
         if (tmp->uid == uid && strcmp(tmp->file_changed, file_path) == 0)
         {
             return 0;
@@ -700,6 +708,7 @@ void Access_control_system(struct file *file)
                 //print_fl_wr_info_list();
                 sys_chmod(new_file_path, 0777);
                 set_fs(oldfs);
+
                 if (IS_ERR(new_file))
                 {
                     if (PTR_ERR(new_file) == -17)
@@ -709,7 +718,7 @@ void Access_control_system(struct file *file)
                 }
                 else
                 {
-                    files_write_info *obj = get_last_modification_object();
+                    files_write_info *obj = get_last_modification_object(path_of_file);
                     if (is_the_first_time_changing_file(_uid, path_of_file))
                     {
                         printk("ALERT %s(%ld) modified file on path %s \n", user_name, _uid, path_of_file);
@@ -724,10 +733,8 @@ void Access_control_system(struct file *file)
                             printk("==================RENAME==============================\n");
                             printk("old file name path %s\n", dentry_path_raw(obj->_file->f_dentry, tmp, PATH_MAX));
                             printk("new  file name path %s\n", dentry_path_raw(new_file->f_dentry, tmp, PATH_MAX));
-                            //lock_rename(obj->_file->f_path.dentry, new_file->f_path.dentry);
-                            vfs_rename(old_parent_inode, obj->_file->f_path.dentry, parent_inode, new_file->f_path.dentry);
-                            //sys_rename( dentry_path_raw(obj->_file->f_dentry, tmp, PATH_MAX) ,dentry_path_raw(new_file->f_dentry, tmp, PATH_MAX));
-                            //unlock_rename(obj->_file->f_path.dentry, new_file->f_path.dentry);
+
+                            vfs_unlink(old_parent_inode, obj->_file->f_path.dentry);
                         }
                     }
                 }
